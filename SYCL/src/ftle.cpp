@@ -14,10 +14,6 @@
 
 #define maxDevices 4
 #define D1_RANGE(size) range<1>{static_cast<size_t>(size)}
-#define HIP_PLATFORM 0
-#define CUDA_PLATFORM 1
-#define OMP_PLATFORM 2
-#define ALL_GPUS_PLATFORM 3
 
 using namespace cl::sycl;
 
@@ -28,46 +24,34 @@ float getKernelExecutionTime(::event event){
 }
 
 std::vector<queue> get_queues_from_platform(int plat, int nDevices){
-	auto property_list =::property_list{::property::queue::enable_profiling()};
-	if(plat == OMP_PLATFORM)
-	{
-		std::vector<queue> queues(1);
-		queues[0] = queue(cpu_selector{}, property_list);
-		return queues;
-	}
-	if(plat == ALL_GPUS_PLATFORM){
-		auto devs = device::get_devices(info::device_type::gpu);
-		std::vector<queue> queues(nDevices);
-		if(devs.size() < nDevices){
-			 printf("ERROR: Requested %d GPUs, but only %d GPU available in the system. Aborting program...\n",nDevices,(int) devs.size());
-			 exit(1);
-		}
-		for (int d=0; d< nDevices; d++){
-			printf("Dispositivo %d: %s\n", d, devs[nDevices - 1 -d ].get_info<info::device::name>().c_str());
-			queues[d] = queue(devs[nDevices - 1 -d ], property_list);
-		}
-		return queues;
-	}
+	// 获取所有可用的平台
+	auto platforms = sycl::platform::get_platforms();
 	
-	auto platform = platform::get_platforms();
-	std::string check = (!plat) ? "HIP" : "CUDA";
-	for (int p=0; p < platform.size(); p++){
-		if(!platform[p].get_info<info::platform::name>().compare(check)){
-			auto devs= platform[p].get_devices();
-			if(devs.size() < nDevices){
-			 	printf("ERROR: Requested %d GPUs, but only %d GPU available in the system. Aborting program...\n",nDevices,(int) devs.size());
-			 	exit(1);
-			}
-			std::vector<queue> queues(nDevices);
-			for (int d=0; d< nDevices; d++){
-				printf("Dispositivo %d: %s\n", d, devs[d].get_info<info::device::name>().c_str());
-				printf("Dispositivo %d: %s\n", d, devs[d].get_info<info::device::name>().c_str());
-				queues[d] = queue(devs[d], property_list);
-			}
-			return queues;
+	auto property_list = ::property_list{ ::property::queue::enable_profiling() };
+
+	// 存储所有设备队列
+	std::vector<sycl::queue> queues;
+
+	// 遍历每个平台
+	for (const auto& platform : platforms) {
+		// 获取平台上的所有设备
+		auto devices = platform.get_devices();
+
+		// 为每个设备创建一个队列并存储
+		for (const auto& device : devices) {
+			sycl::queue queue(device, property_list);
+			queues.push_back(queue);
+
+			// 输出设备信息
+			std::cout << "Platform Name: " << platform.get_info<sycl::info::platform::name>() << std::endl;
+			std::cout << "Device Name: " << device.get_info<sycl::info::device::name>() << std::endl;
+			std::cout << "Device Vendor: " << device.get_info<sycl::info::device::vendor>() << std::endl;
+			std::cout << "Device Version: " << device.get_info<sycl::info::device::version>() << std::endl;
+			std::cout << "Driver Version: " << device.get_info<sycl::info::device::driver_version>() << std::endl;
+			std::cout << std::endl;
 		}
 	}
-	return std::vector<queue>();
+	return queues;
 }
 
 int main(int argc, char *argv[]) {
@@ -110,17 +94,8 @@ int main(int argc, char *argv[]) {
 	int	*nFacesPerPoint;
 	int	*facesPerPoint;
 
-	/*Generate SYCL queues*/
-#ifdef 	HIP_DEVICE
-	auto queues = get_queues_from_platform(HIP_PLATFORM, nDevices);
-#elif 	defined CUDA_DEVICE
-	auto queues = get_queues_from_platform(CUDA_PLATFORM, nDevices);
-#elif 	defined GPU_ALL
-	auto queues = get_queues_from_platform(ALL_GPUS_PLATFORM, nDevices);
-#else
-	nDevices = 1;
-	auto queues = get_queues_from_platform(OMP_PLATFORM, nDevices);
-#endif
+	auto queues = get_queues_from_platform();
+
 	for(int d =0; d < nDevices; d++)
 		printf("Kernel device %d: %s\n", d, queues[d].get_device().get_info<info::device::name>().c_str());  
 
